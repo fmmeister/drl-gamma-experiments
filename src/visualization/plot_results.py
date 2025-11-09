@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import os
+import numpy as np
+
 
 def plot_rewards(rewards, gamma, save_path=None):
     """
@@ -67,5 +69,38 @@ def moving_average(data, window=10):
     np.ndarray
         Smoothed data.
     """
-    import numpy as np
     return np.convolve(data, np.ones(window) / window, mode='valid')
+
+
+
+def plot_losses(losses: list[float], gamma: float, save_path: str) -> None:
+    """
+    Plot the average loss per episode during DQN training.
+
+    Parameters
+    ----------
+    losses : list of float
+        List of average losses per episode.
+    gamma : float
+        Discount factor used in training (γ).
+    save_path : str
+        File path to save the plot image.
+
+    Returns
+    -------
+    None
+        The function saves the plot to the specified path and does not return anything.
+    """
+    losses_array = np.array(losses)  # Ensure input is a NumPy array for potential future manipulations
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(losses_array, label=f"γ = {gamma}")
+    plt.title(f"DQN Training Loss (Gamma={gamma})")
+    plt.xlabel("Episode")
+    plt.ylabel("Average Loss")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+

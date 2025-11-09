@@ -1,9 +1,10 @@
 # config.yaml
 environment:
   name: FrozenLake-v1
-  is_slippery: true
+  is_slippery: False
   map_name: 4x4
-  reward_schedule: [1, 0, 0]
+  reward_schedule: [1, -1, -0.01] # Goal, hole, normal move
+
 
 agent:
   learning_rate: 0.001
@@ -15,6 +16,6 @@ agent:
   target_update_freq: 1000
 
 training:
-  episodes: 20
+  episodes: 2000
   gammas: [0.1, 0.99]
   device: cpu

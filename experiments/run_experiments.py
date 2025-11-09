@@ -12,7 +12,7 @@ import numpy as np
 import gymnasium as gym
 from src.environments.frozenlake_env import make_frozenlake_env
 from src.agents.dqn_agent import DQNAgent
-from src.visualization.plot_results import plot_rewards, plot_gamma_comparison
+from src.visualization.plot_results import plot_rewards, plot_gamma_comparison, plot_losses
 
 
 RESULTS_DIR = "results"
@@ -67,19 +67,10 @@ def train_agent(gamma: float, episodes: int, is_slippery: bool):
     """
     Train the DQN agent with a specific discount factor.
 
-    Parameters
-    ----------
-    gamma : float
-        Discount factor.
-    episodes : int
-        Number of training episodes.
-    is_slippery : bool
-        Whether environment is slippery.
-
     Returns
     -------
-    list
-        Rewards collected per episode.
+    tuple[list, list]
+        (episode_rewards, episode_losses)
     """
     env = make_frozenlake_env(is_slippery=is_slippery)
     state_size = env.observation_space.n
@@ -88,12 +79,14 @@ def train_agent(gamma: float, episodes: int, is_slippery: bool):
     agent = DQNAgent(state_size, action_size, gamma)
 
     episode_rewards = []
+    episode_avg_losses = []
 
     for episode in range(episodes):
         state, _ = env.reset()
         state = one_hot_state(state, state_size)
         total_reward = 0
         done = False
+        episode_losses = []
 
         while not done:
             action = agent.act(state)
@@ -102,45 +95,57 @@ def train_agent(gamma: float, episodes: int, is_slippery: bool):
 
             next_state = one_hot_state(next_state, state_size)
             agent.memorize(state, action, reward, next_state, done)
-            agent.replay()
+
+            loss = agent.replay()
+            if loss is not None:
+                episode_losses.append(loss)
 
             state = next_state
             total_reward += reward
 
+        avg_loss = np.mean(episode_losses) if episode_losses else 0.0
         episode_rewards.append(total_reward)
+        episode_avg_losses.append(avg_loss)
 
         # Log progress every 10 episodes
         if (episode + 1) % 10 == 0:
-            print(f"Gamma: {gamma:.2f} | Episode: {episode + 1}/{episodes} | Reward: {total_reward:.2f} | Epsilon: {agent.epsilon:.3f}")
+            print(f"Gamma: {gamma:.2f} | Episode: {episode + 1}/{episodes} | "
+                  f"Reward: {total_reward:.2f} | Avg Loss: {avg_loss:.4f} | "
+                  f"Epsilon: {agent.epsilon:.3f}")
 
     env.close()
-    return episode_rewards
+    return episode_rewards, episode_avg_losses
+
 
 
 def main():
     config = load_config()
     
-    # Extract parameters from config file
     gammas = config.get("training", {}).get("gammas", [0.1, 0.99])
-    episodes = config.get("training", {}).get("episodes", 20)
+    episodes = config.get("training", {}).get("episodes", 200)
     is_slippery = config.get("environment", {}).get("is_slippery", True)
 
     all_rewards = {}
+    all_losses = {}
 
     for gamma in gammas:
         print(f"Starting training for gamma = {gamma}")
-        rewards = train_agent(gamma, episodes, is_slippery)
+        rewards, losses = train_agent(gamma, episodes, is_slippery)
         all_rewards[gamma] = rewards
+        all_losses[gamma] = losses
 
-        # Save rewards to file
+        # Save results
         np.save(os.path.join(LOGS_DIR, f"rewards_gamma_{gamma:.2f}.npy"), rewards)
+        np.save(os.path.join(LOGS_DIR, f"losses_gamma_{gamma:.2f}.npy"), losses)
 
         # Plot rewards per gamma
         plot_rewards(rewards, gamma, os.path.join(PLOTS_DIR, f"reward_gamma_{gamma:.2f}.png"))
 
+        # Plot loss
+        plot_losses(losses, gamma, os.path.join(PLOTS_DIR, f"loss_gamma_{gamma:.2f}.png"))
+
+
     # Plot comparison of all gammas
     plot_gamma_comparison(all_rewards, os.path.join(PLOTS_DIR, "gamma_comparison.png"))
-
-
 if __name__ == "__main__":
     main()
