@@ -16,6 +16,6 @@ agent:
   target_update_freq: 1000
 
 training:
-  episodes: 2000
+  episodes: 200
   gammas: [0.1, 0.99]
   device: cpu
