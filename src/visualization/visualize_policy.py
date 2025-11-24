@@ -6,8 +6,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 # Ensure project root is in path
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(ROOT_DIR)
+
 
 from src.agents.dqn_agent import DQNAgent
 from src.utils.utils import one_hot_state
