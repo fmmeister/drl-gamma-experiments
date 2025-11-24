@@ -21,8 +21,6 @@ from datetime import datetime
 from src.utils.utils import one_hot_state
 
 
-print(ROOT_DIR)
-
 RESULTS_DIR = os.path.join(ROOT_DIR, "results", "grid_search_discrete_deterministic")
 LOGS_DIR = os.path.join(RESULTS_DIR, "logs")
 PLOTS_DIR = os.path.join(RESULTS_DIR, "plots")
