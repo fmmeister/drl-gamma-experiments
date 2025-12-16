@@ -2,21 +2,22 @@ import sys
 import os
 import torch
 import numpy as np
-import yaml
 from torch.utils.tensorboard import SummaryWriter
 
+# Add project root to path
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(ROOT_DIR)
 
+import yaml
 from src.agents import create_agent
 from src.environments.frozenlake_env import make_frozenlake_env
 from src.utils.utils import one_hot_state
-from src.visualization.visualize_adaptive_gamma_results_4x4 import plot_dual_axis
 
 # =============================================================================
 # Configuration
 # =============================================================================
-MAP_NAME = "4x4"
+# CHANGE 1: Define Map Name Here
+MAP_NAME = "8x8"  # Options: "4x4", "8x8"
 
 STUDY_DIR = os.path.join(ROOT_DIR, "results", "adaptive_gamma_study", MAP_NAME)
 MODELS_DIR = os.path.join(STUDY_DIR, "models")
@@ -34,32 +35,25 @@ PARAMS = {
     "batch_size": 64, 
     "epsilon_decay": 0.995,    
     "is_slippery": True, 
+    # CHANGE 2: 8x8 is harder, so we might need more episodes (optional but recommended)
     "episodes": 3000 if MAP_NAME == "8x8" else 2000, 
     "seed": 25
 }
 
 def get_gamma(episode, total_episodes, method="fixed"):
-    """
-    Calculates gamma based on the current episode.
-    """
     if method == "fixed":
         return 0.99
-    
     elif method == "adaptive":
-        # Linear schedule: Start at 0.8, reach 0.99 at 50% of training
         gamma_start = 0.8
         gamma_end = 0.99
-        fraction = 0.5 # Reach max gamma by episode 1000
-        
+        fraction = 0.5 
         schedule_duration = total_episodes * fraction
         
         if episode >= schedule_duration:
             return gamma_end
         
-        # Linear interpolation formula
         progress = episode / schedule_duration
         return gamma_start + (gamma_end - gamma_start) * progress
-    
     return 0.99
 
 def train_agent(strategy_name: str, agent_type: str = "dqn"):
@@ -69,14 +63,14 @@ def train_agent(strategy_name: str, agent_type: str = "dqn"):
     writer = SummaryWriter(log_dir=os.path.join(TB_DIR, run_name))
 
     env = make_frozenlake_env(
-        is_slippery=PARAMS["is_slippery"],
+        is_slippery=PARAMS["is_slippery"], 
         map_name=MAP_NAME,
         reward_schedule=REWARD_SCHEDULE
     )
     
     state_size = env.observation_space.n
     action_size = env.action_space.n
-    
+
     seed = PARAMS["seed"]
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -104,26 +98,11 @@ def train_agent(strategy_name: str, agent_type: str = "dqn"):
         **agent_kwargs
     )
 
-    # Logging Containers
-    history = {
-        "rewards": [], 
-        "gammas": [], 
-        "loss": [], 
-        "q_values": [], 
-        "steps": []
-    }
+    history = {"rewards": [], "gammas": [], "loss": [], "q_values": [], "steps": []}
     
-    # 2. Training Loop
     for episode in range(1, PARAMS["episodes"] + 1):
-        
-        # --- SCIENTIFIC CORE: DYNAMIC GAMMA UPDATE ---
-        # We calculate the gamma for this specific moment in time
         current_gamma = get_gamma(episode, PARAMS["episodes"], strategy_name)
-        
-        # We inject it directly into the agent. 
-        # The agent's 'replay' function uses self.gamma, so this update takes effect immediately.
         agent.gamma = current_gamma 
-        # ---------------------------------------------
 
         state, _ = env.reset(seed=seed if episode == 1 else None)
         
@@ -171,27 +150,23 @@ def train_agent(strategy_name: str, agent_type: str = "dqn"):
             agent.epsilon *= agent.epsilon_decay
             agent.epsilon = max(agent.epsilon, agent.epsilon_min)
             
-        # Calculate Metrics
         avg_loss = np.mean(episode_losses) if episode_losses else 0
         avg_q = np.mean(episode_qs) if episode_qs else 0
         
-        # Logging
         history["rewards"].append(total_reward)
         history["gammas"].append(current_gamma)
         history["loss"].append(avg_loss)
         history["q_values"].append(avg_q)
         history["steps"].append(steps)
         
-        # TensorBoard
         writer.add_scalar("Reward", total_reward, episode)
         writer.add_scalar("Gamma", current_gamma, episode)
         writer.add_scalar("Loss", avg_loss, episode)
         writer.add_scalar("Avg_Max_Q", avg_q, episode)
-        writer.add_scalar("Steps", steps, episode)
         
         if episode % 100 == 0:
             avg_rew = np.mean(history["rewards"][-50:])
-            print(f"   > Ep {episode}: Reward={avg_rew:.3f} | Gamma={current_gamma:.3f} | Q={avg_q:.3f}")
+            print(f"   > Ep {episode}: Reward={avg_rew:.3f} | Gamma={current_gamma:.3f} | Steps={steps}")
 
     writer.close()
     
@@ -217,12 +192,3 @@ if __name__ == "__main__":
     
     train_agent("fixed", agent_type)
     train_agent("adaptive", agent_type)
-    
-    print("\n" + "=" * 40 + f"\nGENERATING VISUALIZATIONS | {agent_type.upper()} | {MAP_NAME}\n" + "=" * 40)
-    plot_dual_axis("rewards", "Avg Reward (Win 50)", f"{agent_type}_adaptive_rewards_{MAP_NAME}_pro.png", 
-                   "Impact of Adaptive Gamma on Learning Speed", agent_type)
-    
-    plot_dual_axis("q_values", "Avg Max Q-Value", f"{agent_type}_adaptive_q_values_{MAP_NAME}_pro.png", 
-                   "Growth of Value Estimates (Q) with Gamma", agent_type)
-    
-    print(f"\n All visualizations complete for {agent_type.upper()} | {MAP_NAME}!")
