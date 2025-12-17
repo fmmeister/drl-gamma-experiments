@@ -21,9 +21,17 @@ ACTION_ARROWS = {
 }
 
 
-def load_agent(model_path, agent_type):
+def load_agent(model_path, agent_type, env_size: str):
+    """
+    Lade einen Agenten für eine gegebene Umgebungsgröße.
+
+    env_size: "4x4" (16 Zustände) oder "8x8" (64 Zustände)
+    """
+    state_size = 16 if env_size == "4x4" else 64
+    action_size = 4  # FrozenLake hat immer 4 Aktionen
+
     if agent_type.lower() == "dqn":
-        agent = create_agent("dqn", state_size=16, action_size=4, gamma=0.99, seed=0)
+        agent = create_agent("dqn", state_size=state_size, action_size=action_size, gamma=0.99, seed=0)
         try:
             agent.policy_net.load_state_dict(
                 torch.load(model_path, map_location=torch.device('cpu'))
@@ -33,7 +41,7 @@ def load_agent(model_path, agent_type):
         except FileNotFoundError:
             return None
     else:
-        agent = create_agent("qlearning", state_size=16, action_size=4, gamma=0.99, seed=0)
+        agent = create_agent("qlearning", state_size=state_size, action_size=action_size, gamma=0.99, seed=0)
         try:
             agent.q_table = np.load(model_path, allow_pickle=True)
             return agent
@@ -41,28 +49,41 @@ def load_agent(model_path, agent_type):
             return None
 
 
-def plot_policy_map(model_filename, env_type, gamma, agent_type="dqn"):
-    type_dir = os.path.join(STUDY_DIR, env_type)
+def plot_policy_map(model_filename, env_type, gamma, env_size: str, agent_type: str = "dqn"):
+    """
+    Erzeuge eine Policy-Heatmap.
+
+    Verzeichnisstruktur:
+      results/gamma_study_analysis/{env_size}/{agent_type}/{env_type}/models
+      results/gamma_study_analysis/{env_size}/{agent_type}/{env_type}/plots
+    """
+    type_dir = os.path.join(STUDY_DIR, env_size, agent_type, env_type)
     models_dir = os.path.join(type_dir, "models")
     plots_dir = os.path.join(type_dir, "plots")
     os.makedirs(plots_dir, exist_ok=True)
 
     model_path = os.path.join(models_dir, model_filename)
-    agent = load_agent(model_path, agent_type)
+    agent = load_agent(model_path, agent_type, env_size)
 
     if agent is None:
         print(f" Model not found: {model_path}")
         return
 
-    rows, cols = 4, 4
+    # Gittergröße abhängig von der Umgebung
+    if env_size == "4x4":
+        rows, cols = 4, 4
+    else:
+        rows, cols = 8, 8
+
+    num_states = rows * cols
     value_grid = np.zeros((rows, cols))
     policy_grid = np.empty((rows, cols), dtype=object)
 
-    for s in range(16):
+    for s in range(num_states):
         row, col = divmod(s, cols)
         
         if agent_type.lower() == "dqn":
-            state_vec = one_hot_state(s, 16)
+            state_vec = one_hot_state(s, num_states)
             state_tensor = torch.FloatTensor(state_vec).unsqueeze(0)
             with torch.no_grad():
                 q_values = agent.policy_net(state_tensor).numpy()[0]
@@ -83,7 +104,7 @@ def plot_policy_map(model_filename, env_type, gamma, agent_type="dqn"):
                 linewidths=1, linecolor='gray',
                 norm=norm)
 
-    plt.title(f"Policy Map | {agent_type.upper()} | {env_type.capitalize()} | Gamma={gamma}", fontsize=14)
+    plt.title(f"Policy Map | {agent_type.upper()} | {env_size} | {env_type.capitalize()} | Gamma={gamma}", fontsize=14)
 
     save_path = os.path.join(plots_dir, f"map_{agent_type}_gamma_{gamma}.png")
     plt.savefig(save_path)
@@ -91,22 +112,27 @@ def plot_policy_map(model_filename, env_type, gamma, agent_type="dqn"):
     print(f"   > Saved map: {save_path}")
 
 
-def generate_all_maps(agent_type="dqn"):
+def generate_all_maps(env_size: str, agent_type: str = "dqn"):
     GAMMAS = [0.1, 0.3, 0.5, 0.7, 0.9, 0.99]
     types = ["deterministic", "stochastic"]
 
-    print(f"\n Generating Policy Maps (Heatmaps) for {agent_type.upper()}...")
+    print(f"\n Generating Policy Maps (Heatmaps) for {agent_type.upper()} | {env_size}...")
     for t in types:
         for g in GAMMAS:
             if agent_type.lower() == "dqn":
                 model_filename = f"{agent_type}_gamma_{g}.pth"
             else:
                 model_filename = f"{agent_type}_gamma_{g}.npy"
-            plot_policy_map(model_filename, t, g, agent_type)
-    print(f"Done! Check plots folders inside {STUDY_DIR}")
+            plot_policy_map(model_filename, t, g, env_size, agent_type)
+    print(f"Done! Check plots folders inside {STUDY_DIR}/{env_size}/{agent_type}/")
 
 
 if __name__ == "__main__":
-    import sys
-    agent_type = sys.argv[1] if len(sys.argv) > 1 else "dqn"
-    generate_all_maps(agent_type)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate policy maps for gamma study")
+    parser.add_argument("--env-size", type=str, default="4x4", choices=["4x4", "8x8"])
+    parser.add_argument("--agent-type", type=str, default="dqn", choices=["dqn", "qlearning"])
+    args = parser.parse_args()
+
+    generate_all_maps(env_size=args.env_size, agent_type=args.agent_type)

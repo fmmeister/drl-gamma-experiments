@@ -19,10 +19,11 @@ def moving_average(data, window_size=50):
         return data
     return np.convolve(data, np.ones(window_size)/window_size, mode='valid')
 
-def plot_metric_comparison(env_type, metric_key, title, ylabel, agent_type="dqn"):
+def plot_metric_comparison(env_size, env_type, metric_key, title, ylabel, agent_type="dqn"):
     plt.figure(figsize=(10, 6))
     
-    type_dir = os.path.join(STUDY_DIR, env_type)
+    # Verzeichnisstruktur: results/gamma_study_analysis/{env_size}/{agent_type}/{env_type}/
+    type_dir = os.path.join(STUDY_DIR, env_size, agent_type, env_type)
     data_dir = os.path.join(type_dir, "data")
     plots_dir = os.path.join(type_dir, "plots")
     
@@ -50,7 +51,7 @@ def plot_metric_comparison(env_type, metric_key, title, ylabel, agent_type="dqn"
         plt.close()
         return
 
-    plt.title(f"{title} | {agent_type.upper()} | {env_type.capitalize()}", fontsize=14)
+    plt.title(f"{title} | {agent_type.upper()} | {env_size} | {env_type.capitalize()}", fontsize=14)
     plt.xlabel("Episodes", fontsize=12)
     plt.ylabel(ylabel, fontsize=12)
     plt.legend(title="Discount Factor")
@@ -61,18 +62,32 @@ def plot_metric_comparison(env_type, metric_key, title, ylabel, agent_type="dqn"
     plt.close()
     print(f"   > Saved plot: {save_path}")
 
-def run_visualizations(agent_type="dqn"):
+def run_visualizations(env_size: str, agent_type: str = "dqn"):
+    """
+    Erzeuge Metrik-Plots für eine gegebene Umgebungsgröße und einen Agent-Typ.
+
+    Die Daten werden aus:
+        results/gamma_study_analysis/{env_size}/{agent_type}/{env_type}/data
+    gelesen und Plots nach:
+        results/gamma_study_analysis/{env_size}/{agent_type}/{env_type}/plots
+    gespeichert.
+    """
     types = ["deterministic", "stochastic"]
     
     for t in types:
-        print(f"\n Generating plots for {agent_type.upper()} | {t}...")
-        plot_metric_comparison(t, "rewards", "Learning Curve (Avg Reward)", "Reward", agent_type)
-        plot_metric_comparison(t, "steps", "Behavioral Analysis (Avg Steps)", "Steps", agent_type)
-        plot_metric_comparison(t, "avg_q", "Confidence (Avg Max Q-Value)", "Q-Value", agent_type)
-        plot_metric_comparison(t, "loss", "Training Stability (Avg Loss)", "Loss", agent_type)
-        plot_metric_comparison(t, "success", "Reliability (Success Rate)", "Success %", agent_type)
+        print(f"\n Generating plots for {agent_type.upper()} | {env_size} | {t}...")
+        plot_metric_comparison(env_size, t, "rewards", "Learning Curve (Avg Reward)", "Reward", agent_type)
+        plot_metric_comparison(env_size, t, "steps", "Behavioral Analysis (Avg Steps)", "Steps", agent_type)
+        plot_metric_comparison(env_size, t, "avg_q", "Confidence (Avg Max Q-Value)", "Q-Value", agent_type)
+        plot_metric_comparison(env_size, t, "loss", "Training Stability (Avg Loss)", "Loss", agent_type)
+        plot_metric_comparison(env_size, t, "success", "Reliability (Success Rate)", "Success %", agent_type)
 
 if __name__ == "__main__":
-    import sys
-    agent_type = sys.argv[1] if len(sys.argv) > 1 else "dqn"
-    run_visualizations(agent_type)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Visualize gamma study metrics")
+    parser.add_argument("--env-size", type=str, default="4x4", choices=["4x4", "8x8"])
+    parser.add_argument("--agent-type", type=str, default="dqn", choices=["dqn", "qlearning"])
+    args = parser.parse_args()
+
+    run_visualizations(env_size=args.env_size, agent_type=args.agent_type)

@@ -23,7 +23,8 @@ STUDY_DIR = os.path.join(ROOT_DIR, "results", "gamma_study_analysis")
 # Reward Schedule: (Goal, Hole, Step)
 REWARD_SCHEDULE = (1, -1, -0.01)
 
-BEST_PARAMS_DETERMINISTIC = {
+# Parameters for 4x4 environment
+BEST_PARAMS_DETERMINISTIC_4X4 = {
     "learning_rate": 0.0005,
     "batch_size": 64,
     "epsilon_decay": 0.95,
@@ -32,7 +33,7 @@ BEST_PARAMS_DETERMINISTIC = {
     "seed": 12
 }
 
-BEST_PARAMS_STOCHASTIC = {
+BEST_PARAMS_STOCHASTIC_4X4 = {
     "learning_rate": 0.001,
     "batch_size": 64,
     "epsilon_decay": 0.995,
@@ -41,13 +42,57 @@ BEST_PARAMS_STOCHASTIC = {
     "seed": 25
 }
 
+# Parameters for 8x8 environment (more episodes needed due to larger state space)
+BEST_PARAMS_DETERMINISTIC_8X8 = {
+    "learning_rate": 0.0005,
+    "batch_size": 64,
+    "epsilon_decay": 0.95,
+    "is_slippery": False,
+    "episodes": 20000,  # Increased for 8x8
+    "seed": 12
+}
+
+BEST_PARAMS_STOCHASTIC_8X8 = {
+    "learning_rate": 0.001,
+    "batch_size": 64,
+    "epsilon_decay": 0.995,
+    "is_slippery": True,
+    "episodes": 32000,  # Increased for 8x8
+    "seed": 25
+}
+
 GAMMAS_TO_TEST = [0.1, 0.3, 0.5, 0.7, 0.9, 0.99]
 
 
-def train_single_gamma(gamma: float, base_params: dict, env_type: str, agent_type: str = "dqn"):
-    print(f"\n Testing Gamma = {gamma} [{env_type}] | Agent: {agent_type.upper()}...")
+def train_single_gamma(
+    gamma: float, 
+    base_params: dict, 
+    env_type: str, 
+    env_size: str,
+    agent_type: str = "dqn"
+):
+    """
+    Train a single gamma configuration.
+    
+    Parameters
+    ----------
+    gamma : float
+        Discount factor to test.
+    base_params : dict
+        Base training parameters.
+    env_type : str
+        Environment type: "deterministic" or "stochastic".
+    env_size : str
+        Environment size: "4x4" or "8x8".
+    agent_type : str
+        Agent type: "dqn" or "qlearning".
+    """
+    print(f"\n Testing Gamma = {gamma} [{env_type}] | {env_size} | Agent: {agent_type.upper()}...")
 
-    type_dir = os.path.join(STUDY_DIR, env_type)
+    # Create directory structure: results/gamma_study_analysis/{env_size}/{agent_type}/{env_type}/
+    size_dir = os.path.join(STUDY_DIR, env_size)
+    agent_dir = os.path.join(size_dir, agent_type)
+    type_dir = os.path.join(agent_dir, env_type)
     models_dir = os.path.join(type_dir, "models")
     data_dir = os.path.join(type_dir, "data")
     tb_dir = os.path.join(type_dir, "tensorboard")
@@ -61,8 +106,12 @@ def train_single_gamma(gamma: float, base_params: dict, env_type: str, agent_typ
 
     env = make_frozenlake_env(
         is_slippery=base_params["is_slippery"],
+        map_name=env_size,
         reward_schedule=REWARD_SCHEDULE
     )
+
+    # Get state size dynamically from environment
+    state_size = env.observation_space.n
 
     seed = base_params["seed"]
     np.random.seed(seed)
@@ -84,7 +133,7 @@ def train_single_gamma(gamma: float, base_params: dict, env_type: str, agent_typ
 
     agent = create_agent(
         agent_type=agent_type,
-        state_size=env.observation_space.n,
+        state_size=state_size,
         action_size=env.action_space.n,
         gamma=gamma,
         seed=seed,
@@ -103,7 +152,7 @@ def train_single_gamma(gamma: float, base_params: dict, env_type: str, agent_typ
         state, _ = env.reset(seed=seed if episode == 1 else None)
         
         if agent_type.lower() == "dqn":
-            state = one_hot_state(state, 16)
+            state = one_hot_state(state, state_size)
         else:
             state_idx = state
         
@@ -130,7 +179,7 @@ def train_single_gamma(gamma: float, base_params: dict, env_type: str, agent_typ
             done = terminated or truncated
             
             if agent_type.lower() == "dqn":
-                next_state_vec = one_hot_state(next_state, 16)
+                next_state_vec = one_hot_state(next_state, state_size)
                 agent.memorize(state, action, reward, next_state_vec, done)
                 loss = agent.replay()
                 if loss is not None:
@@ -180,35 +229,61 @@ def train_single_gamma(gamma: float, base_params: dict, env_type: str, agent_typ
     data_path = os.path.join(data_dir, f"metrics_{agent_type}_gamma_{gamma}.npy")
     np.save(data_path, history)
 
-    print(f" Data saved for {agent_type.upper()} | Gamma={gamma} in {env_type}/")
+    print(f" Data saved for {agent_type.upper()} | Gamma={gamma} | {env_size} | {env_type}/")
 
 
-def run_study(agent_type: str = "dqn"):
+def run_study():
+    """
+    Run the gamma study for a specific environment size and agent type.
+    
+    Parameters
+    ----------
+    Agent-Typ wird aus der config.yaml gelesen.
+    """
+    # Default-Werte, falls keine Config vorhanden ist
+    agent_type = "dqn"
+    env_size = "4x4"
+
     config_path = os.path.join(ROOT_DIR, "config.yaml")
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
             agent_type = config.get("agent", {}).get("type", agent_type)
+            env_size = config.get("environment", {}).get("map_name", env_size)
     
-    print("=" * 40 + f"\nSTARTING DETERMINISTIC STUDY | {agent_type.upper()}\n" + "=" * 40)
+    # Select appropriate parameters based on environment size
+    if env_size == "4x4":
+        params_deterministic = BEST_PARAMS_DETERMINISTIC_4X4
+        params_stochastic = BEST_PARAMS_STOCHASTIC_4X4
+    elif env_size == "8x8":
+        params_deterministic = BEST_PARAMS_DETERMINISTIC_8X8
+        params_stochastic = BEST_PARAMS_STOCHASTIC_8X8
+    else:
+        raise ValueError(f"Unsupported environment size: {env_size}. Use '4x4' or '8x8'.")
+    
+    print("=" * 60)
+    print(f"GAMMA STUDY | {env_size} | {agent_type.upper()}")
+    print("=" * 60)
+    
+    print("\n" + "=" * 60 + f"\nSTARTING DETERMINISTIC STUDY | {env_size} | {agent_type.upper()}\n" + "=" * 60)
     for g in GAMMAS_TO_TEST:
-        train_single_gamma(g, BEST_PARAMS_DETERMINISTIC, "deterministic", agent_type)
+        train_single_gamma(g, params_deterministic, "deterministic", env_size, agent_type)
 
-    print("\n" + "=" * 40 + f"\nSTARTING STOCHASTIC STUDY | {agent_type.upper()}\n" + "=" * 40)
+    print("\n" + "=" * 60 + f"\nSTARTING STOCHASTIC STUDY | {env_size} | {agent_type.upper()}\n" + "=" * 60)
     for g in GAMMAS_TO_TEST:
-        train_single_gamma(g, BEST_PARAMS_STOCHASTIC, "stochastic", agent_type)
+        train_single_gamma(g, params_stochastic, "stochastic", env_size, agent_type)
 
-    print(f"\n Study Complete. Results saved to: {STUDY_DIR}")
+    print(f"\n Study Complete. Results saved to: {STUDY_DIR}/{env_size}/{agent_type}/")
     print(f"   > Run 'tensorboard --logdir={STUDY_DIR}' to view live results.")
     
-    print("\n" + "=" * 40 + f"\nGENERATING VISUALIZATIONS | {agent_type.upper()}\n" + "=" * 40)
+    print("\n" + "=" * 60 + f"\nGENERATING VISUALIZATIONS | {env_size} | {agent_type.upper()}\n" + "=" * 60)
     print("\n Generating metric comparisons...")
-    run_visualizations(agent_type)
+    run_visualizations(env_size=env_size, agent_type=agent_type)
     
     print("\n Generating policy maps...")
-    generate_all_maps(agent_type)
+    generate_all_maps(env_size=env_size, agent_type=agent_type)
     
-    print(f"\n All visualizations complete for {agent_type.upper()}!")
+    print(f"\n All visualizations complete for {agent_type.upper()} | {env_size}!")
 
 
 if __name__ == "__main__":
